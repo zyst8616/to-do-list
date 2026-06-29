@@ -388,7 +388,7 @@ function App() {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: window.location.origin
+        emailRedirectTo: window.location.href.split("#")[0].split("?")[0]
       }
     });
 
