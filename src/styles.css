@@ -201,7 +201,7 @@ button:disabled {
 
 .time-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin-top: 16px;
   padding: 5px;
@@ -691,7 +691,7 @@ button:disabled {
   font-weight: 900;
 }
 
-.quick-add-panel div {
+.quick-add-row {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
@@ -716,6 +716,49 @@ button:disabled {
   background: #ffffff;
   color: #111827;
   font-weight: 950;
+}
+
+.quick-add-options {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.quick-add-options fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.quick-add-options legend {
+  margin: 0 0 8px 6px;
+  color: var(--muted-strong);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.segmented-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.segmented-options button {
+  min-width: 0;
+  min-height: 40px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: 0.86rem;
+}
+
+.segmented-options button.active {
+  background: #ffffff;
+  color: #111827;
 }
 
 .bottom-toolbar {

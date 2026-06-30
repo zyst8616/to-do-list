@@ -14,7 +14,15 @@ const members: Member[] = [
 const taskToneCount = 5;
 
 type ViewMode = "mine" | "partner" | "all";
-type TimeMode = "today" | "history" | "all";
+type TimeMode = "today" | "tomorrow" | "history" | "all";
+type PlannedDateChoice = "today" | "tomorrow";
+
+type AppMember = {
+  id: ActorId;
+  name: string;
+  shortName: string;
+  email?: string;
+};
 
 type TaskRow = {
   id: string;
@@ -22,11 +30,23 @@ type TaskRow = {
   title: string;
   status: TaskStatus;
   created_by: string;
+  owner_id: string;
+  planned_date: string;
   created_at: string;
   updated_at: string;
   completed_by: string | null;
   completed_at: string | null;
   deleted_at?: string | null;
+};
+
+type SpaceMemberRow = {
+  user_id: string;
+};
+
+type ProfileRow = {
+  id: string;
+  email: string | null;
+  display_name: string | null;
 };
 
 function createId() {
@@ -40,7 +60,8 @@ function createId() {
 function readStoredTasks() {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Task[]) : [];
+    const parsed = raw ? (JSON.parse(raw) as Array<Partial<Task>>) : [];
+    return parsed.map(normalizeStoredTask).filter((task): task is Task => Boolean(task));
   } catch {
     return [];
   }
@@ -75,12 +96,33 @@ function isAllowedEmail(email?: string | null) {
   return Boolean(email && allowedEmails.includes(email.toLowerCase()));
 }
 
+function normalizeStoredTask(rawTask: Partial<Task>): Task | null {
+  if (!rawTask.id || !rawTask.title || !rawTask.status || !rawTask.createdBy || !rawTask.createdAt || !rawTask.updatedAt) {
+    return null;
+  }
+
+  return {
+    id: rawTask.id,
+    title: rawTask.title,
+    status: rawTask.status,
+    createdBy: rawTask.createdBy,
+    ownerId: rawTask.ownerId ?? rawTask.createdBy,
+    plannedDate: rawTask.plannedDate ?? getLocalDateKey(rawTask.createdAt),
+    createdAt: rawTask.createdAt,
+    updatedAt: rawTask.updatedAt,
+    completedBy: rawTask.completedBy,
+    completedAt: rawTask.completedAt
+  };
+}
+
 function mapTaskRow(row: TaskRow): Task {
   return {
     id: row.id,
     title: row.title,
     status: row.status,
     createdBy: row.created_by,
+    ownerId: row.owner_id ?? row.created_by,
+    plannedDate: row.planned_date ?? getLocalDateKey(row.created_at),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedBy: row.completed_by ?? undefined,
@@ -111,23 +153,33 @@ function getLocalDateKey(value: Date | string) {
   return `${year}-${month}-${day}`;
 }
 
-function filterTasksByTime(tasks: Task[], timeMode: TimeMode, todayKey: string) {
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
+function filterTasksByTime(tasks: Task[], timeMode: TimeMode, todayKey: string, tomorrowKey: string) {
   if (timeMode === "all") {
     return tasks;
   }
 
   return tasks.filter((task) => {
-    const taskDateKey = getLocalDateKey(task.createdAt);
+    const taskDateKey = task.plannedDate || getLocalDateKey(task.createdAt);
 
     if (timeMode === "today") {
       return taskDateKey === todayKey;
+    }
+
+    if (timeMode === "tomorrow") {
+      return taskDateKey === tomorrowKey;
     }
 
     return Boolean(taskDateKey && taskDateKey < todayKey);
   });
 }
 
-function memberName(actorId?: ActorId, currentUserId?: string) {
+function memberName(actorId?: ActorId, currentUserId?: string, knownMembers: AppMember[] = members) {
   if (!actorId) {
     return "未知";
   }
@@ -136,7 +188,7 @@ function memberName(actorId?: ActorId, currentUserId?: string) {
     return "我";
   }
 
-  const localMember = members.find((member) => member.id === actorId);
+  const localMember = knownMembers.find((member) => member.id === actorId);
 
   if (localMember) {
     return localMember.name;
@@ -171,10 +223,13 @@ function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>(() => (isCloudMode ? [] : readStoredTasks()));
+  const [cloudMembers, setCloudMembers] = useState<AppMember[]>([]);
   const [currentMember, setCurrentMember] = useState<LocalMemberId>(() => getStoredMember());
   const [viewMode, setViewMode] = useState<ViewMode>("mine");
   const [timeMode, setTimeMode] = useState<TimeMode>("today");
   const [title, setTitle] = useState("");
+  const [selectedOwnerId, setSelectedOwnerId] = useState<ActorId | null>(null);
+  const [plannedDateChoice, setPlannedDateChoice] = useState<PlannedDateChoice>("today");
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [showComposer, setShowComposer] = useState(false);
@@ -187,6 +242,34 @@ function App() {
   const currentUserId = session?.user.id;
   const currentActorId = isCloudMode ? currentUserId : currentMember;
   const todayKey = useMemo(() => getLocalDateKey(now), [now]);
+  const tomorrowKey = useMemo(() => getLocalDateKey(addDays(now, 1)), [now]);
+  const availableMembers = useMemo<AppMember[]>(() => {
+    if (!isCloudMode) {
+      return members;
+    }
+
+    if (cloudMembers.length > 0) {
+      return cloudMembers;
+    }
+
+    return currentUserId
+      ? [
+          {
+            id: currentUserId,
+            name: "我",
+            shortName: "我",
+            email: session?.user.email ?? undefined
+          }
+        ]
+      : [];
+  }, [cloudMembers, currentUserId, isCloudMode, session?.user.email]);
+  const effectiveOwnerId = useMemo(() => {
+    if (selectedOwnerId && availableMembers.some((member) => member.id === selectedOwnerId)) {
+      return selectedOwnerId;
+    }
+
+    return currentActorId ?? availableMembers[0]?.id ?? null;
+  }, [availableMembers, currentActorId, selectedOwnerId]);
 
   const orderedTasks = useMemo(
     () =>
@@ -203,50 +286,120 @@ function App() {
   const activeTasks = useMemo(() => tasks.filter((task) => task.status === "active"), [tasks]);
   const completedTasks = useMemo(() => tasks.filter((task) => task.status === "completed"), [tasks]);
   const dateScopedTasks = useMemo(
-    () => filterTasksByTime(orderedTasks, timeMode, todayKey),
-    [orderedTasks, timeMode, todayKey]
+    () => filterTasksByTime(orderedTasks, timeMode, todayKey, tomorrowKey),
+    [orderedTasks, timeMode, todayKey, tomorrowKey]
   );
   const ownerScopedTasks = useMemo(() => {
     if (viewMode === "mine") {
-      return orderedTasks.filter((task) => task.createdBy === currentActorId);
+      return orderedTasks.filter((task) => task.ownerId === currentActorId);
     }
 
     if (viewMode === "partner") {
-      return orderedTasks.filter((task) => task.createdBy !== currentActorId);
+      return orderedTasks.filter((task) => task.ownerId !== currentActorId);
     }
 
     return orderedTasks;
   }, [currentActorId, orderedTasks, viewMode]);
   const myTasks = useMemo(
-    () => (currentActorId ? dateScopedTasks.filter((task) => task.createdBy === currentActorId) : []),
+    () => (currentActorId ? dateScopedTasks.filter((task) => task.ownerId === currentActorId) : []),
     [currentActorId, dateScopedTasks]
   );
   const partnerTasks = useMemo(
-    () => (currentActorId ? dateScopedTasks.filter((task) => task.createdBy !== currentActorId) : []),
+    () => (currentActorId ? dateScopedTasks.filter((task) => task.ownerId !== currentActorId) : []),
     [currentActorId, dateScopedTasks]
   );
   const todayTasks = useMemo(
-    () => filterTasksByTime(ownerScopedTasks, "today", todayKey),
-    [ownerScopedTasks, todayKey]
+    () => filterTasksByTime(ownerScopedTasks, "today", todayKey, tomorrowKey),
+    [ownerScopedTasks, todayKey, tomorrowKey]
+  );
+  const tomorrowTasks = useMemo(
+    () => filterTasksByTime(ownerScopedTasks, "tomorrow", todayKey, tomorrowKey),
+    [ownerScopedTasks, todayKey, tomorrowKey]
   );
   const historyTasks = useMemo(
-    () => filterTasksByTime(ownerScopedTasks, "history", todayKey),
-    [ownerScopedTasks, todayKey]
+    () => filterTasksByTime(ownerScopedTasks, "history", todayKey, tomorrowKey),
+    [ownerScopedTasks, todayKey, tomorrowKey]
   );
 
   const visibleTasks = useMemo(() => {
     if (viewMode === "mine") {
-      return dateScopedTasks.filter((task) => task.createdBy === currentActorId);
+      return dateScopedTasks.filter((task) => task.ownerId === currentActorId);
     }
 
     if (viewMode === "partner") {
-      return dateScopedTasks.filter((task) => task.createdBy !== currentActorId);
+      return dateScopedTasks.filter((task) => task.ownerId !== currentActorId);
     }
 
     return dateScopedTasks;
   }, [currentActorId, dateScopedTasks, viewMode]);
   const visibleActiveTasks = useMemo(() => visibleTasks.filter((task) => task.status === "active"), [visibleTasks]);
   const visibleCompletedTasks = useMemo(() => visibleTasks.filter((task) => task.status === "completed"), [visibleTasks]);
+
+  const loadCloudMembers = useCallback(async (spaceId: string, currentSession: Session) => {
+    if (!supabase) {
+      return;
+    }
+
+    const { data: memberships, error: membershipsError } = await supabase
+      .from("space_members")
+      .select("user_id")
+      .eq("space_id", spaceId);
+
+    if (membershipsError) {
+      throw membershipsError;
+    }
+
+    const userIds = ((memberships ?? []) as SpaceMemberRow[]).map((membership) => membership.user_id);
+
+    if (userIds.length === 0) {
+      setCloudMembers([
+        {
+          id: currentSession.user.id,
+          name: "我",
+          shortName: "我",
+          email: currentSession.user.email ?? undefined
+        }
+      ]);
+      return;
+    }
+
+    const { data: profiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("id,email,display_name")
+      .in("id", userIds);
+
+    if (profilesError) {
+      throw profilesError;
+    }
+
+    const profileById = new Map(((profiles ?? []) as ProfileRow[]).map((profile) => [profile.id, profile]));
+    const nextMembers = userIds
+      .map((userId) => {
+        const profile = profileById.get(userId);
+        const isMe = userId === currentSession.user.id;
+        const fallbackName = profile?.email?.split("@")[0] || (isMe ? "我" : "对方");
+
+        return {
+          id: userId,
+          name: isMe ? "我" : profile?.display_name || fallbackName,
+          shortName: isMe ? "我" : "TA",
+          email: profile?.email ?? undefined
+        };
+      })
+      .sort((a, b) => {
+        if (a.id === currentSession.user.id) {
+          return -1;
+        }
+
+        if (b.id === currentSession.user.id) {
+          return 1;
+        }
+
+        return a.name.localeCompare(b.name, "zh-CN");
+      });
+
+    setCloudMembers(nextMembers);
+  }, []);
 
   const loadCloudTasks = useCallback(async (spaceId: string) => {
     if (!supabase) {
@@ -297,6 +450,7 @@ function App() {
           return;
         }
 
+        await loadCloudMembers(nextSpaceId, currentSession);
         await loadCloudTasks(nextSpaceId);
       } catch (error) {
         setSyncMessage(getErrorMessage(error));
@@ -304,7 +458,7 @@ function App() {
         setIsLoadingCloud(false);
       }
     },
-    [cloudSpaceId, loadCloudTasks]
+    [cloudSpaceId, loadCloudMembers, loadCloudTasks]
   );
 
   useEffect(() => {
@@ -414,6 +568,14 @@ function App() {
   }, [currentMember]);
 
   useEffect(() => {
+    if (!effectiveOwnerId) {
+      return;
+    }
+
+    setSelectedOwnerId(effectiveOwnerId);
+  }, [effectiveOwnerId]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -475,6 +637,11 @@ function App() {
         return;
       }
 
+      if (!effectiveOwnerId) {
+        setNotice("负责人还没准备好，请刷新后再试。");
+        return;
+      }
+
       setIsSaving(true);
 
       const { data, error } = await supabase
@@ -483,7 +650,9 @@ function App() {
           space_id: cloudSpaceId,
           title: nextTitle,
           status: "active",
-          created_by: session.user.id
+          created_by: session.user.id,
+          owner_id: effectiveOwnerId,
+          planned_date: plannedDateChoice === "today" ? todayKey : tomorrowKey
         })
         .select("*")
         .single();
@@ -503,6 +672,8 @@ function App() {
         title: nextTitle,
         status: "active",
         createdBy: currentMember,
+        ownerId: effectiveOwnerId ?? currentMember,
+        plannedDate: plannedDateChoice === "today" ? todayKey : tomorrowKey,
         createdAt: timestamp,
         updatedAt: timestamp
       };
@@ -511,6 +682,7 @@ function App() {
     }
 
     setTitle("");
+    setPlannedDateChoice("today");
     setShowComposer(false);
     setNotice(null);
   }
@@ -683,6 +855,7 @@ function App() {
         task={task}
         toneClass={getTaskTone(task.id)}
         currentUserId={currentUserId}
+        members={availableMembers}
         isEditing={editingTaskId === task.id}
         editingTitle={editingTitle}
         onEditTitleChange={setEditingTitle}
@@ -724,14 +897,17 @@ function App() {
   ] satisfies Array<{ id: ViewMode; label: string; count: number }>;
   const timeTabs = [
     { id: "today", label: "今天", count: todayTasks.length },
+    { id: "tomorrow", label: "明天", count: tomorrowTasks.length },
     { id: "history", label: "历史", count: historyTasks.length },
     { id: "all", label: "全部", count: ownerScopedTasks.length }
   ] satisfies Array<{ id: TimeMode; label: string; count: number }>;
   const ownerLabel = viewMode === "mine" ? "我的" : viewMode === "partner" ? "对方" : "全部";
-  const timeLabel = timeMode === "today" ? "今天" : timeMode === "history" ? "历史" : "全部";
+  const timeLabel = timeMode === "today" ? "今天" : timeMode === "tomorrow" ? "明天" : timeMode === "history" ? "历史" : "全部";
   const emptyText =
     timeMode === "today"
       ? `${ownerLabel}今天还没有待办，点左下角 + 添加第一件事`
+      : timeMode === "tomorrow"
+        ? `${ownerLabel}明天还没有待办，点左下角 + 添加第一件事`
       : timeMode === "history"
         ? `${ownerLabel}历史里还没有待办`
         : `${ownerLabel}清单还空着，点左下角 + 添加第一件事`;
@@ -757,7 +933,7 @@ function App() {
           className="calendar-button"
           type="button"
           aria-label="打开日历"
-          onClick={() => setNotice("现在已按 今天 / 历史 自动分开；更细的日期选择会在后续加入。")}
+          onClick={() => setNotice("现在支持 今天 / 明天 / 历史；更细的日期选择会在后续加入。")}
         >
           <span className="calendar-icon" aria-hidden="true" />
         </button>
@@ -875,7 +1051,7 @@ function App() {
       {showComposer && (
         <form className="quick-add-panel" onSubmit={addTask}>
           <label htmlFor="new-task">新增待办</label>
-          <div>
+          <div className="quick-add-row">
             <input
               id="new-task"
               value={title}
@@ -887,6 +1063,44 @@ function App() {
             <button type="submit" disabled={isSaving}>
               {isSaving ? "同步中" : "添加"}
             </button>
+          </div>
+
+          <div className="quick-add-options">
+            <fieldset>
+              <legend>负责人</legend>
+              <div className="segmented-options">
+                {availableMembers.map((member) => (
+                  <button
+                    key={member.id}
+                    className={effectiveOwnerId === member.id ? "active" : ""}
+                    type="button"
+                    onClick={() => setSelectedOwnerId(member.id)}
+                  >
+                    {memberName(member.id, currentUserId, availableMembers)}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>日期</legend>
+              <div className="segmented-options">
+                <button
+                  className={plannedDateChoice === "today" ? "active" : ""}
+                  type="button"
+                  onClick={() => setPlannedDateChoice("today")}
+                >
+                  今天
+                </button>
+                <button
+                  className={plannedDateChoice === "tomorrow" ? "active" : ""}
+                  type="button"
+                  onClick={() => setPlannedDateChoice("tomorrow")}
+                >
+                  明天
+                </button>
+              </div>
+            </fieldset>
           </div>
         </form>
       )}
@@ -1010,6 +1224,7 @@ type TimelineTaskProps = {
   task: Task;
   toneClass: string;
   currentUserId?: string;
+  members: AppMember[];
   isEditing: boolean;
   editingTitle: string;
   onEditTitleChange: (value: string) => void;
@@ -1024,6 +1239,7 @@ function TimelineTask({
   task,
   toneClass,
   currentUserId,
+  members,
   isEditing,
   editingTitle,
   onEditTitleChange,
@@ -1064,8 +1280,10 @@ function TimelineTask({
           <>
             <p>{task.title}</p>
             <span className="task-meta">
-              {memberName(task.createdBy, currentUserId)} 创建 · {formatDateTime(task.createdAt)}
-              {task.completedAt ? ` · ${memberName(task.completedBy, currentUserId)} 已完成` : ""}
+              {memberName(task.ownerId, currentUserId, members)}负责 · {task.plannedDate}
+              {" · "}
+              {memberName(task.createdBy, currentUserId, members)}创建 · {formatDateTime(task.createdAt)}
+              {task.completedAt ? ` · ${memberName(task.completedBy, currentUserId, members)}已完成` : ""}
             </span>
           </>
         )}

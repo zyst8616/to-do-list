@@ -8,6 +8,8 @@ export type Task = {
   title: string;
   status: TaskStatus;
   createdBy: ActorId;
+  ownerId: ActorId;
+  plannedDate: string;
   createdAt: string;
   updatedAt: string;
   completedBy?: ActorId;
