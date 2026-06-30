@@ -199,6 +199,41 @@ button:disabled {
   color: #ff9aa7;
 }
 
+.time-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+  padding: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.time-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.time-tab.active {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--text);
+}
+
+.time-tab strong {
+  color: currentColor;
+  font-size: 0.76em;
+  opacity: 0.72;
+}
+
 .sign-out-button {
   min-width: 64px;
   min-height: 40px;

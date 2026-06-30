@@ -15,6 +15,7 @@ const timelineHours = ["12:00", "13:00", "14:00", "15:00", "16:00", "--:--"];
 const taskToneCount = 5;
 
 type ViewMode = "mine" | "partner" | "all";
+type TimeMode = "today" | "history" | "all";
 type DisplayMode = "list" | "timeline";
 
 type TaskRow = {
@@ -106,6 +107,36 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function getLocalDateKey(value: Date | string) {
+  const date = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function filterTasksByTime(tasks: Task[], timeMode: TimeMode, todayKey: string) {
+  if (timeMode === "all") {
+    return tasks;
+  }
+
+  return tasks.filter((task) => {
+    const taskDateKey = getLocalDateKey(task.createdAt);
+
+    if (timeMode === "today") {
+      return taskDateKey === todayKey;
+    }
+
+    return Boolean(taskDateKey && taskDateKey < todayKey);
+  });
+}
+
 function memberName(actorId?: ActorId, currentUserId?: string) {
   if (!actorId) {
     return "未知";
@@ -161,6 +192,7 @@ function App() {
   const [tasks, setTasks] = useState<Task[]>(() => (isCloudMode ? [] : readStoredTasks()));
   const [currentMember, setCurrentMember] = useState<LocalMemberId>(() => getStoredMember());
   const [viewMode, setViewMode] = useState<ViewMode>("mine");
+  const [timeMode, setTimeMode] = useState<TimeMode>("today");
   const [displayMode, setDisplayMode] = useState<DisplayMode>("timeline");
   const [title, setTitle] = useState("");
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -173,6 +205,7 @@ function App() {
 
   const currentUserId = session?.user.id;
   const currentActorId = isCloudMode ? currentUserId : currentMember;
+  const todayKey = useMemo(() => getLocalDateKey(now), [now]);
 
   const orderedTasks = useMemo(
     () =>
@@ -188,16 +221,11 @@ function App() {
 
   const activeTasks = useMemo(() => tasks.filter((task) => task.status === "active"), [tasks]);
   const completedTasks = useMemo(() => tasks.filter((task) => task.status === "completed"), [tasks]);
-  const myTasks = useMemo(
-    () => (currentActorId ? tasks.filter((task) => task.createdBy === currentActorId) : []),
-    [currentActorId, tasks]
+  const dateScopedTasks = useMemo(
+    () => filterTasksByTime(orderedTasks, timeMode, todayKey),
+    [orderedTasks, timeMode, todayKey]
   );
-  const partnerTasks = useMemo(
-    () => (currentActorId ? tasks.filter((task) => task.createdBy !== currentActorId) : []),
-    [currentActorId, tasks]
-  );
-
-  const visibleTasks = useMemo(() => {
+  const ownerScopedTasks = useMemo(() => {
     if (viewMode === "mine") {
       return orderedTasks.filter((task) => task.createdBy === currentActorId);
     }
@@ -208,6 +236,34 @@ function App() {
 
     return orderedTasks;
   }, [currentActorId, orderedTasks, viewMode]);
+  const myTasks = useMemo(
+    () => (currentActorId ? dateScopedTasks.filter((task) => task.createdBy === currentActorId) : []),
+    [currentActorId, dateScopedTasks]
+  );
+  const partnerTasks = useMemo(
+    () => (currentActorId ? dateScopedTasks.filter((task) => task.createdBy !== currentActorId) : []),
+    [currentActorId, dateScopedTasks]
+  );
+  const todayTasks = useMemo(
+    () => filterTasksByTime(ownerScopedTasks, "today", todayKey),
+    [ownerScopedTasks, todayKey]
+  );
+  const historyTasks = useMemo(
+    () => filterTasksByTime(ownerScopedTasks, "history", todayKey),
+    [ownerScopedTasks, todayKey]
+  );
+
+  const visibleTasks = useMemo(() => {
+    if (viewMode === "mine") {
+      return dateScopedTasks.filter((task) => task.createdBy === currentActorId);
+    }
+
+    if (viewMode === "partner") {
+      return dateScopedTasks.filter((task) => task.createdBy !== currentActorId);
+    }
+
+    return dateScopedTasks;
+  }, [currentActorId, dateScopedTasks, viewMode]);
   const visibleActiveTasks = useMemo(() => visibleTasks.filter((task) => task.status === "active"), [visibleTasks]);
   const visibleCompletedTasks = useMemo(() => visibleTasks.filter((task) => task.status === "completed"), [visibleTasks]);
 
@@ -683,8 +739,21 @@ function App() {
   const tabs = [
     { id: "mine", label: "我的", count: myTasks.length },
     { id: "partner", label: "对方", count: partnerTasks.length },
-    { id: "all", label: "全部", count: tasks.length }
+    { id: "all", label: "全部", count: dateScopedTasks.length }
   ] satisfies Array<{ id: ViewMode; label: string; count: number }>;
+  const timeTabs = [
+    { id: "today", label: "今天", count: todayTasks.length },
+    { id: "history", label: "历史", count: historyTasks.length },
+    { id: "all", label: "全部", count: ownerScopedTasks.length }
+  ] satisfies Array<{ id: TimeMode; label: string; count: number }>;
+  const ownerLabel = viewMode === "mine" ? "我的" : viewMode === "partner" ? "对方" : "全部";
+  const timeLabel = timeMode === "today" ? "今天" : timeMode === "history" ? "历史" : "全部";
+  const emptyText =
+    timeMode === "today"
+      ? `${ownerLabel}今天还没有待办，点左下角 + 添加第一件事`
+      : timeMode === "history"
+        ? `${ownerLabel}历史里还没有待办`
+        : `${ownerLabel}清单还空着，点左下角 + 添加第一件事`;
 
   return (
     <main className="app-shell">
@@ -707,7 +776,7 @@ function App() {
           className="calendar-button"
           type="button"
           aria-label="打开日历"
-          onClick={() => setNotice("日期选择会在后续加入；现在先用 我的 / 对方 / 全部 分开查看。")}
+          onClick={() => setNotice("现在已按 今天 / 历史 自动分开；更细的日期选择会在后续加入。")}
         >
           <span className="calendar-icon" aria-hidden="true" />
         </button>
@@ -747,6 +816,20 @@ function App() {
       {isLoadingCloud && <p className="access-line">正在同步云端清单...</p>}
       {syncMessage && <p className="access-line warning-line">{syncMessage}</p>}
 
+      <nav className="time-tabs" aria-label="日期范围">
+        {timeTabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={timeMode === tab.id ? "time-tab active" : "time-tab"}
+            type="button"
+            onClick={() => setTimeMode(tab.id)}
+          >
+            <span>{tab.label}</span>
+            <strong>{tab.count}</strong>
+          </button>
+        ))}
+      </nav>
+
       {showTip && (
         <section className="timeline-tip" aria-label="时间线模式说明">
           <div className="tip-icon" aria-hidden="true" />
@@ -754,7 +837,7 @@ function App() {
             x
           </button>
           <h1>时间线模式</h1>
-          <p>顶部可以分开看我的和对方的待办，点击左侧圆圈即可打勾完成。</p>
+          <p>顶部可以分开看我的和对方的待办；今天和历史会按创建日期自动切换。</p>
           <button className="tip-action" type="button" onClick={() => setShowTip(false)}>
             知道了
           </button>
@@ -783,13 +866,7 @@ function App() {
 
           <div className="task-stack">
             {visibleTasks.length === 0 ? (
-              <div className="empty-pill">
-                {viewMode === "mine"
-                  ? "我的清单还空着，点左下角 + 添加第一件事"
-                  : viewMode === "partner"
-                    ? "对方的清单还空着"
-                    : "点左下角 + 添加第一件事"}
-              </div>
+              <div className="empty-pill">{emptyText}</div>
             ) : (
               <ul className="timeline-task-list">{renderTaskItems()}</ul>
             )}
@@ -799,7 +876,7 @@ function App() {
         <section className="list-view" aria-label="清单待办">
           <div className="list-view-header">
             <div>
-              <strong>清单视图</strong>
+              <strong>{timeLabel} · 清单视图</strong>
               <span>{visibleActiveTasks.length} 个未完成 · {visibleCompletedTasks.length} 个已完成</span>
             </div>
             <button type="button" onClick={() => setDisplayMode("timeline")}>
@@ -808,13 +885,7 @@ function App() {
           </div>
 
           {visibleTasks.length === 0 ? (
-            <div className="empty-pill">
-              {viewMode === "mine"
-                ? "我的清单还空着，点左下角 + 添加第一件事"
-                : viewMode === "partner"
-                  ? "对方的清单还空着"
-                  : "点左下角 + 添加第一件事"}
-            </div>
+            <div className="empty-pill">{emptyText}</div>
           ) : (
             <ul className="timeline-task-list list-task-list">{renderTaskItems()}</ul>
           )}
