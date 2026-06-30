@@ -1,6 +1,6 @@
 # 我们的待办
 
-一个手机优先的双人共享 To-do List。当前阶段先完成 PWA 前端雏形，后续接入 Supabase 登录、数据库和权限控制。
+一个手机优先的双人共享 To-do List。当前版本已经上线到 GitHub Pages，并接入 Supabase 登录、数据库、权限控制和实时同步。
 
 ## 本地运行
 
@@ -41,17 +41,12 @@ https://zyst8616.github.io/to-do-list/
 
 部署方式：
 
-1. 创建 GitHub 仓库，建议仓库名为 `to-do-list`。
-2. 把代码推送到 `main` 分支。
-3. 在仓库的 `Settings -> Pages` 中，把 Source 设置为 `GitHub Actions`。
-4. 在 `Settings -> Secrets and variables -> Actions -> Variables` 中添加：
+当前使用 `gh-pages` 分支部署，而不是 GitHub Actions。
 
-```txt
-VITE_SUPABASE_URL=你的 Supabase Project URL
-VITE_SUPABASE_ANON_KEY=你的 Supabase publishable key
-VITE_SHARED_SPACE_ID=创建共享空间后填入
-VITE_ALLOWED_EMAILS=你的邮箱,对方邮箱
-```
+1. 修改源码并运行 `npm run build`。
+2. 提交并推送 `main` 分支。
+3. 把 `dist` 产物提交到 `gh-pages` 分支根目录。
+4. 推送 `gh-pages` 分支。
 
 安全边界：
 
@@ -64,7 +59,11 @@ VITE_ALLOWED_EMAILS=你的邮箱,对方邮箱
 - 已有手机优先待办界面。
 - 已有 PWA manifest 和基础 Service Worker。
 - 已有本地存储预览模式。
-- 已有 Supabase 邮箱登录、云端任务读写和实时订阅接入代码。
-- 已有 Supabase 数据库 SQL 初稿。
+- 已有 Supabase 邮箱登录、云端任务读写和实时订阅。
+- 已有 Supabase RLS，限制共享空间成员访问。
+- 已有 `我的 / 对方 / 全部` 筛选。
+- 已有 `今天 / 历史 / 全部` 筛选。
+- 已完成任务默认折叠。
+- 已移除鸡肋时间线，默认使用紧凑清单视图。
 
-真实双人同步需要创建 Supabase 项目后继续接入。
+下一步计划是升级任务数据结构，增加真正的负责人 `owner_id` 和计划日期 `planned_date`。

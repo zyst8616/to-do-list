@@ -32,6 +32,8 @@ create table if not exists public.tasks (
   notes text,
   status text not null default 'active' check (status in ('active', 'completed')),
   created_by uuid not null references auth.users(id),
+  owner_id uuid not null default auth.uid() references auth.users(id),
+  planned_date date not null default ((now() at time zone 'Asia/Shanghai')::date),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   completed_by uuid references auth.users(id),
@@ -41,6 +43,7 @@ create table if not exists public.tasks (
 
 create index if not exists tasks_space_id_status_idx on public.tasks(space_id, status);
 create index if not exists tasks_updated_at_idx on public.tasks(updated_at desc);
+create index if not exists tasks_space_owner_planned_date_idx on public.tasks(space_id, owner_id, planned_date);
 
 create or replace function public.handle_new_user()
 returns trigger
@@ -97,6 +100,21 @@ as $$
     from public.space_members
     where space_id = target_space_id
       and user_id = auth.uid()
+  );
+$$;
+
+create or replace function public.is_user_space_member(target_space_id uuid, target_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.space_members
+    where space_id = target_space_id
+      and user_id = target_user_id
   );
 $$;
 
@@ -166,6 +184,7 @@ to authenticated
 with check (
   public.is_space_member(space_id)
   and created_by = auth.uid()
+  and public.is_user_space_member(space_id, owner_id)
 );
 
 drop policy if exists "Members can update tasks" on public.tasks;
@@ -174,7 +193,10 @@ on public.tasks
 for update
 to authenticated
 using (public.is_space_member(space_id))
-with check (public.is_space_member(space_id));
+with check (
+  public.is_space_member(space_id)
+  and public.is_user_space_member(space_id, owner_id)
+);
 
 drop policy if exists "Members can soft delete tasks" on public.tasks;
 create policy "Members can soft delete tasks"
