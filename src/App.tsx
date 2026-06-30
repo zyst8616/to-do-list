@@ -11,12 +11,10 @@ const members: Member[] = [
   { id: "partner", name: "对方", shortName: "TA" }
 ];
 
-const timelineHours = ["12:00", "13:00", "14:00", "15:00", "16:00", "--:--"];
 const taskToneCount = 5;
 
 type ViewMode = "mine" | "partner" | "all";
 type TimeMode = "today" | "history" | "all";
-type DisplayMode = "list" | "timeline";
 
 type TaskRow = {
   id: string;
@@ -90,14 +88,6 @@ function mapTaskRow(row: TaskRow): Task {
   };
 }
 
-function getTimeLabel(date: Date) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).format(date);
-}
-
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("zh-CN", {
     month: "2-digit",
@@ -160,15 +150,6 @@ function getTaskTone(taskId: string) {
   return `tone-${(total % taskToneCount) + 1}`;
 }
 
-function getNowLineTop(date: Date) {
-  const hour = date.getHours() + date.getMinutes() / 60;
-  const startHour = 12;
-  const endHour = 16;
-  const clamped = Math.min(endHour, Math.max(startHour, hour));
-  const position = ((clamped - startHour) / (endHour - startHour)) * 68 + 14;
-  return `${position}%`;
-}
-
 function upsertTask(tasks: Task[], nextTask: Task) {
   const exists = tasks.some((task) => task.id === nextTask.id);
 
@@ -193,11 +174,11 @@ function App() {
   const [currentMember, setCurrentMember] = useState<LocalMemberId>(() => getStoredMember());
   const [viewMode, setViewMode] = useState<ViewMode>("mine");
   const [timeMode, setTimeMode] = useState<TimeMode>("today");
-  const [displayMode, setDisplayMode] = useState<DisplayMode>("timeline");
   const [title, setTitle] = useState("");
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [showComposer, setShowComposer] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showTip, setShowTip] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
@@ -695,8 +676,8 @@ function App() {
     }
   }
 
-  function renderTaskItems() {
-    return visibleTasks.map((task) => (
+  function renderTaskItems(items: Task[]) {
+    return items.map((task) => (
       <TimelineTask
         key={task.id}
         task={task}
@@ -831,13 +812,13 @@ function App() {
       </nav>
 
       {showTip && (
-        <section className="timeline-tip" aria-label="时间线模式说明">
+        <section className="timeline-tip" aria-label="清单模式说明">
           <div className="tip-icon" aria-hidden="true" />
           <button className="tip-close" type="button" onClick={() => setShowTip(false)} aria-label="关闭说明">
             x
           </button>
-          <h1>时间线模式</h1>
-          <p>顶部可以分开看我的和对方的待办；今天和历史会按创建日期自动切换。</p>
+          <h1>清单模式</h1>
+          <p>未完成事项会优先显示；已完成事项可以折叠，减少占用手机屏幕。</p>
           <button className="tip-action" type="button" onClick={() => setShowTip(false)}>
             知道了
           </button>
@@ -850,47 +831,46 @@ function App() {
         </div>
       )}
 
-      {displayMode === "timeline" ? (
-        <section className="timeline" aria-label="时间线待办">
-          <div className="time-grid" aria-hidden="true">
-            {timelineHours.map((hour) => (
-              <div className="time-row" key={hour}>
-                <span>{hour}</span>
-                <i />
-              </div>
-            ))}
-            <div className="now-line" style={{ top: getNowLineTop(now) }}>
-              <span>{getTimeLabel(now)}</span>
-            </div>
+      <section className="task-board" aria-label="待办清单">
+        <div className="task-board-header">
+          <div>
+            <strong>{timeLabel}清单</strong>
+            <span>{visibleActiveTasks.length} 个未完成 · {visibleCompletedTasks.length} 个已完成</span>
           </div>
+        </div>
 
-          <div className="task-stack">
-            {visibleTasks.length === 0 ? (
-              <div className="empty-pill">{emptyText}</div>
+        {visibleTasks.length === 0 ? (
+          <div className="empty-pill">{emptyText}</div>
+        ) : (
+          <>
+            {visibleActiveTasks.length > 0 ? (
+              <ul className="timeline-task-list compact-task-list">{renderTaskItems(visibleActiveTasks)}</ul>
             ) : (
-              <ul className="timeline-task-list">{renderTaskItems()}</ul>
+              <div className="empty-pill compact-empty">当前没有未完成事项</div>
             )}
-          </div>
-        </section>
-      ) : (
-        <section className="list-view" aria-label="清单待办">
-          <div className="list-view-header">
-            <div>
-              <strong>{timeLabel} · 清单视图</strong>
-              <span>{visibleActiveTasks.length} 个未完成 · {visibleCompletedTasks.length} 个已完成</span>
-            </div>
-            <button type="button" onClick={() => setDisplayMode("timeline")}>
-              时间线
-            </button>
-          </div>
 
-          {visibleTasks.length === 0 ? (
-            <div className="empty-pill">{emptyText}</div>
-          ) : (
-            <ul className="timeline-task-list list-task-list">{renderTaskItems()}</ul>
-          )}
-        </section>
-      )}
+            {visibleCompletedTasks.length > 0 && (
+              <section className="completed-section" aria-label="已完成待办">
+                <button
+                  className="completed-toggle"
+                  type="button"
+                  onClick={() => setShowCompleted((value) => !value)}
+                  aria-expanded={showCompleted}
+                >
+                  <span>已完成 {visibleCompletedTasks.length}</span>
+                  <strong>{showCompleted ? "收起" : "展开"}</strong>
+                </button>
+
+                {showCompleted && (
+                  <ul className="timeline-task-list compact-task-list completed-task-list">
+                    {renderTaskItems(visibleCompletedTasks)}
+                  </ul>
+                )}
+              </section>
+            )}
+          </>
+        )}
+      </section>
 
       {showComposer && (
         <form className="quick-add-panel" onSubmit={addTask}>
@@ -924,32 +904,14 @@ function App() {
           {showComposer ? "x" : "+"}
         </button>
 
-        <div className="view-switch" aria-label="视图切换">
-          <button
-            className={displayMode === "list" ? "active" : ""}
-            type="button"
-            aria-label="清单视图"
-            aria-pressed={displayMode === "list"}
-            onClick={() => {
-              setDisplayMode("list");
-              setShowMoreMenu(false);
-            }}
-          >
-            <span className="grid-icon" aria-hidden="true" />
-          </button>
-          <button
-            className={displayMode === "timeline" ? "active" : ""}
-            type="button"
-            aria-label="时间线视图"
-            aria-pressed={displayMode === "timeline"}
-            onClick={() => {
-              setDisplayMode("timeline");
-              setShowMoreMenu(false);
-            }}
-          >
-            <span className="clock-icon" aria-hidden="true" />
-          </button>
-        </div>
+        <button
+          className="toolbar-status"
+          type="button"
+          onClick={() => setShowCompleted((value) => !value)}
+          disabled={visibleCompletedTasks.length === 0}
+        >
+          已完成 {visibleCompletedTasks.length}
+        </button>
 
         <button
           className={showMoreMenu ? "toolbar-round active" : "toolbar-round"}
@@ -977,6 +939,16 @@ function App() {
             }}
           >
             显示说明
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setShowCompleted((value) => !value);
+              setShowMoreMenu(false);
+            }}
+          >
+            {showCompleted ? "收起已完成" : "展开已完成"}
           </button>
           <button
             type="button"
