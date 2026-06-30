@@ -608,11 +608,55 @@ button:disabled {
 .empty-pill {
   display: grid;
   place-items: center;
+  min-height: 64px;
   padding: 0 20px;
   border: 1px dashed rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.04);
   color: var(--muted-strong);
   text-align: center;
+}
+
+.list-view {
+  margin-top: 28px;
+}
+
+.list-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 0 2px;
+}
+
+.list-view-header strong,
+.list-view-header span {
+  display: block;
+}
+
+.list-view-header strong {
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.list-view-header span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.list-view-header button {
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.list-task-list .timeline-task {
+  border-radius: 26px;
 }
 
 .quick-add-panel {
@@ -686,6 +730,10 @@ button:disabled {
   line-height: 1;
 }
 
+.toolbar-round.active {
+  background: rgba(255, 255, 255, 0.14);
+}
+
 .toolbar-round:last-child {
   font-size: 1.5rem;
   letter-spacing: 2px;
@@ -713,6 +761,38 @@ button:disabled {
 
 .view-switch button.active {
   background: rgba(255, 255, 255, 0.14);
+}
+
+.more-menu {
+  position: fixed;
+  right: max(22px, calc((100vw - 520px) / 2 + 22px));
+  bottom: calc(92px + env(safe-area-inset-bottom));
+  z-index: 12;
+  display: grid;
+  gap: 6px;
+  min-width: 156px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 22px;
+  background: rgba(40, 41, 47, 0.96);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+}
+
+.more-menu button {
+  min-height: 42px;
+  border-radius: 16px;
+  padding: 0 14px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 850;
+  text-align: left;
+}
+
+.more-menu button:active,
+.more-menu button:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .grid-icon,

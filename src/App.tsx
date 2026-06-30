@@ -14,7 +14,8 @@ const members: Member[] = [
 const timelineHours = ["12:00", "13:00", "14:00", "15:00", "16:00", "--:--"];
 const taskToneCount = 5;
 
-type ViewMode = "today" | "tomorrow" | "all";
+type ViewMode = "mine" | "partner" | "all";
+type DisplayMode = "list" | "timeline";
 
 type TaskRow = {
   id: string;
@@ -159,11 +160,13 @@ function App() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>(() => (isCloudMode ? [] : readStoredTasks()));
   const [currentMember, setCurrentMember] = useState<LocalMemberId>(() => getStoredMember());
-  const [viewMode, setViewMode] = useState<ViewMode>("today");
+  const [viewMode, setViewMode] = useState<ViewMode>("mine");
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("timeline");
   const [title, setTitle] = useState("");
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [showComposer, setShowComposer] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showTip, setShowTip] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
@@ -185,14 +188,28 @@ function App() {
 
   const activeTasks = useMemo(() => tasks.filter((task) => task.status === "active"), [tasks]);
   const completedTasks = useMemo(() => tasks.filter((task) => task.status === "completed"), [tasks]);
+  const myTasks = useMemo(
+    () => (currentActorId ? tasks.filter((task) => task.createdBy === currentActorId) : []),
+    [currentActorId, tasks]
+  );
+  const partnerTasks = useMemo(
+    () => (currentActorId ? tasks.filter((task) => task.createdBy !== currentActorId) : []),
+    [currentActorId, tasks]
+  );
 
   const visibleTasks = useMemo(() => {
-    if (viewMode === "tomorrow") {
-      return [];
+    if (viewMode === "mine") {
+      return orderedTasks.filter((task) => task.createdBy === currentActorId);
+    }
+
+    if (viewMode === "partner") {
+      return orderedTasks.filter((task) => task.createdBy !== currentActorId);
     }
 
     return orderedTasks;
-  }, [orderedTasks, viewMode]);
+  }, [currentActorId, orderedTasks, viewMode]);
+  const visibleActiveTasks = useMemo(() => visibleTasks.filter((task) => task.status === "active"), [visibleTasks]);
+  const visibleCompletedTasks = useMemo(() => visibleTasks.filter((task) => task.status === "completed"), [visibleTasks]);
 
   const loadCloudTasks = useCallback(async (spaceId: string) => {
     if (!supabase) {
@@ -596,6 +613,57 @@ function App() {
     setTasks((current) => current.filter((item) => item.id !== taskId));
   }
 
+  async function refreshTasks() {
+    setShowMoreMenu(false);
+
+    if (!isCloudMode) {
+      setTasks(readStoredTasks());
+      setNotice("已读取本地待办。");
+      return;
+    }
+
+    if (!cloudSpaceId) {
+      setNotice("云端共享空间还没准备好。");
+      return;
+    }
+
+    setIsLoadingCloud(true);
+
+    try {
+      await loadCloudTasks(cloudSpaceId);
+      setNotice("已刷新同步。");
+    } catch (error) {
+      setNotice(getErrorMessage(error));
+    } finally {
+      setIsLoadingCloud(false);
+    }
+  }
+
+  function renderTaskItems() {
+    return visibleTasks.map((task) => (
+      <TimelineTask
+        key={task.id}
+        task={task}
+        toneClass={getTaskTone(task.id)}
+        currentUserId={currentUserId}
+        isEditing={editingTaskId === task.id}
+        editingTitle={editingTitle}
+        onEditTitleChange={setEditingTitle}
+        onToggle={() => {
+          void toggleTask(task);
+        }}
+        onBeginEdit={() => beginEdit(task)}
+        onCancelEdit={() => setEditingTaskId(null)}
+        onSaveEdit={() => {
+          void saveEdit(task.id);
+        }}
+        onDelete={() => {
+          void deleteTask(task.id);
+        }}
+      />
+    ));
+  }
+
   if (isCloudMode && !authReady) {
     return <AuthScreen mode="loading" authMessage="正在读取登录状态..." loginEmail={loginEmail} onEmailChange={setLoginEmail} onSignIn={signIn} />;
   }
@@ -613,15 +681,15 @@ function App() {
   }
 
   const tabs = [
-    { id: "today", label: "今天", count: tasks.length },
-    { id: "tomorrow", label: "明天", count: 0 },
+    { id: "mine", label: "我的", count: myTasks.length },
+    { id: "partner", label: "对方", count: partnerTasks.length },
     { id: "all", label: "全部", count: tasks.length }
   ] satisfies Array<{ id: ViewMode; label: string; count: number }>;
 
   return (
     <main className="app-shell">
       <header className="top-area">
-        <nav className="date-tabs" aria-label="待办范围">
+        <nav className="date-tabs" aria-label="待办归属">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -635,7 +703,12 @@ function App() {
           ))}
         </nav>
 
-        <button className="calendar-button" type="button" aria-label="打开日历">
+        <button
+          className="calendar-button"
+          type="button"
+          aria-label="打开日历"
+          onClick={() => setNotice("日期选择会在后续加入；现在先用 我的 / 对方 / 全部 分开查看。")}
+        >
           <span className="calendar-icon" aria-hidden="true" />
         </button>
       </header>
@@ -681,7 +754,7 @@ function App() {
             x
           </button>
           <h1>时间线模式</h1>
-          <p>任务按时间线呈现，点击左侧圆圈即可打勾完成。</p>
+          <p>顶部可以分开看我的和对方的待办，点击左侧圆圈即可打勾完成。</p>
           <button className="tip-action" type="button" onClick={() => setShowTip(false)}>
             知道了
           </button>
@@ -694,52 +767,59 @@ function App() {
         </div>
       )}
 
-      <section className="timeline" aria-label="时间线待办">
-        <div className="time-grid" aria-hidden="true">
-          {timelineHours.map((hour) => (
-            <div className="time-row" key={hour}>
-              <span>{hour}</span>
-              <i />
+      {displayMode === "timeline" ? (
+        <section className="timeline" aria-label="时间线待办">
+          <div className="time-grid" aria-hidden="true">
+            {timelineHours.map((hour) => (
+              <div className="time-row" key={hour}>
+                <span>{hour}</span>
+                <i />
+              </div>
+            ))}
+            <div className="now-line" style={{ top: getNowLineTop(now) }}>
+              <span>{getTimeLabel(now)}</span>
             </div>
-          ))}
-          <div className="now-line" style={{ top: getNowLineTop(now) }}>
-            <span>{getTimeLabel(now)}</span>
           </div>
-        </div>
 
-        <div className="task-stack">
+          <div className="task-stack">
+            {visibleTasks.length === 0 ? (
+              <div className="empty-pill">
+                {viewMode === "mine"
+                  ? "我的清单还空着，点左下角 + 添加第一件事"
+                  : viewMode === "partner"
+                    ? "对方的清单还空着"
+                    : "点左下角 + 添加第一件事"}
+              </div>
+            ) : (
+              <ul className="timeline-task-list">{renderTaskItems()}</ul>
+            )}
+          </div>
+        </section>
+      ) : (
+        <section className="list-view" aria-label="清单待办">
+          <div className="list-view-header">
+            <div>
+              <strong>清单视图</strong>
+              <span>{visibleActiveTasks.length} 个未完成 · {visibleCompletedTasks.length} 个已完成</span>
+            </div>
+            <button type="button" onClick={() => setDisplayMode("timeline")}>
+              时间线
+            </button>
+          </div>
+
           {visibleTasks.length === 0 ? (
             <div className="empty-pill">
-              {viewMode === "tomorrow" ? "明天的清单还空着" : "点左下角 + 添加第一件事"}
+              {viewMode === "mine"
+                ? "我的清单还空着，点左下角 + 添加第一件事"
+                : viewMode === "partner"
+                  ? "对方的清单还空着"
+                  : "点左下角 + 添加第一件事"}
             </div>
           ) : (
-            <ul className="timeline-task-list">
-              {visibleTasks.map((task) => (
-                <TimelineTask
-                  key={task.id}
-                  task={task}
-                  toneClass={getTaskTone(task.id)}
-                  currentUserId={currentUserId}
-                  isEditing={editingTaskId === task.id}
-                  editingTitle={editingTitle}
-                  onEditTitleChange={setEditingTitle}
-                  onToggle={() => {
-                    void toggleTask(task);
-                  }}
-                  onBeginEdit={() => beginEdit(task)}
-                  onCancelEdit={() => setEditingTaskId(null)}
-                  onSaveEdit={() => {
-                    void saveEdit(task.id);
-                  }}
-                  onDelete={() => {
-                    void deleteTask(task.id);
-                  }}
-                />
-              ))}
-            </ul>
+            <ul className="timeline-task-list list-task-list">{renderTaskItems()}</ul>
           )}
-        </div>
-      </section>
+        </section>
+      )}
 
       {showComposer && (
         <form className="quick-add-panel" onSubmit={addTask}>
@@ -764,25 +844,81 @@ function App() {
         <button
           className="toolbar-round"
           type="button"
-          onClick={() => setShowComposer((value) => !value)}
+          onClick={() => {
+            setShowComposer((value) => !value);
+            setShowMoreMenu(false);
+          }}
           aria-label={showComposer ? "关闭新增" : "新增待办"}
         >
           {showComposer ? "x" : "+"}
         </button>
 
         <div className="view-switch" aria-label="视图切换">
-          <button type="button" aria-label="方格视图">
+          <button
+            className={displayMode === "list" ? "active" : ""}
+            type="button"
+            aria-label="清单视图"
+            aria-pressed={displayMode === "list"}
+            onClick={() => {
+              setDisplayMode("list");
+              setShowMoreMenu(false);
+            }}
+          >
             <span className="grid-icon" aria-hidden="true" />
           </button>
-          <button className="active" type="button" aria-label="时间线视图">
+          <button
+            className={displayMode === "timeline" ? "active" : ""}
+            type="button"
+            aria-label="时间线视图"
+            aria-pressed={displayMode === "timeline"}
+            onClick={() => {
+              setDisplayMode("timeline");
+              setShowMoreMenu(false);
+            }}
+          >
             <span className="clock-icon" aria-hidden="true" />
           </button>
         </div>
 
-        <button className="toolbar-round" type="button" aria-label="更多">
+        <button
+          className={showMoreMenu ? "toolbar-round active" : "toolbar-round"}
+          type="button"
+          aria-label="更多"
+          aria-expanded={showMoreMenu}
+          aria-controls="more-menu"
+          onClick={() => setShowMoreMenu((value) => !value)}
+        >
           ...
         </button>
       </nav>
+
+      {showMoreMenu && (
+        <div className="more-menu" id="more-menu" role="menu">
+          <button type="button" role="menuitem" onClick={() => void refreshTasks()}>
+            刷新同步
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setShowTip(true);
+              setShowMoreMenu(false);
+            }}
+          >
+            显示说明
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setShowComposer(false);
+              setShowMoreMenu(false);
+            }}
+          >
+            收起新增
+          </button>
+        </div>
+      )}
     </main>
   );
 }
