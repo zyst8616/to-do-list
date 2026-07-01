@@ -199,6 +199,36 @@ button:disabled {
   color: #ff9aa7;
 }
 
+.update-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  background: rgba(246, 247, 251, 0.08);
+  color: var(--muted-strong);
+  box-shadow: var(--shadow);
+}
+
+.update-banner span {
+  min-width: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.update-banner button {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
 .time-tabs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -627,6 +657,46 @@ button:disabled {
   background: rgba(255, 255, 255, 0.04);
   color: var(--muted-strong);
   text-align: center;
+}
+
+.empty-card {
+  display: grid;
+  gap: 10px;
+  min-height: 96px;
+  padding: 18px;
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted-strong);
+}
+
+.empty-card strong {
+  color: var(--text);
+  font-size: 0.98rem;
+  line-height: 1.35;
+}
+
+.empty-card span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.empty-actions button {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 900;
 }
 
 .compact-task-list .timeline-task {

@@ -5,6 +5,7 @@ import type { ActorId, LocalMemberId, Member, Task, TaskStatus } from "./types";
 
 const STORAGE_KEY = "two-person-todo:tasks:v1";
 const CURRENT_MEMBER_KEY = "two-person-todo:current-member:v1";
+const TIP_DISMISSED_KEY = "two-person-todo:list-tip-dismissed:v1";
 
 const members: Member[] = [
   { id: "me", name: "我", shortName: "我" },
@@ -70,6 +71,14 @@ function readStoredTasks() {
 function getStoredMember() {
   const stored = window.localStorage.getItem(CURRENT_MEMBER_KEY);
   return stored === "partner" ? "partner" : "me";
+}
+
+function shouldShowListTip() {
+  try {
+    return window.localStorage.getItem(TIP_DISMISSED_KEY) !== "1";
+  } catch {
+    return true;
+  }
 }
 
 function getErrorMessage(error: unknown) {
@@ -235,7 +244,8 @@ function App() {
   const [showComposer, setShowComposer] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [showTip, setShowTip] = useState(true);
+  const [showTip, setShowTip] = useState(() => shouldShowListTip());
+  const [updateRegistration, setUpdateRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
 
@@ -403,7 +413,7 @@ function App() {
 
   const loadCloudTasks = useCallback(async (spaceId: string) => {
     if (!supabase) {
-      return;
+      return 0;
     }
 
     const { data, error } = await supabase
@@ -417,7 +427,9 @@ function App() {
       throw error;
     }
 
-    setTasks(((data ?? []) as TaskRow[]).map(mapTaskRow));
+    const nextTasks = ((data ?? []) as TaskRow[]).map(mapTaskRow);
+    setTasks(nextTasks);
+    return nextTasks.length;
   }, []);
 
   const loadCloudWorkspace = useCallback(
@@ -579,6 +591,49 @@ function App() {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const handleUpdateReady = (event: Event) => {
+      const detail = (event as CustomEvent<{ registration?: ServiceWorkerRegistration }>).detail;
+
+      if (detail?.registration) {
+        setUpdateRegistration(detail.registration);
+      }
+    };
+
+    window.addEventListener("app-update-ready", handleUpdateReady);
+    return () => window.removeEventListener("app-update-ready", handleUpdateReady);
+  }, []);
+
+  function dismissTip() {
+    setShowTip(false);
+
+    try {
+      window.localStorage.setItem(TIP_DISMISSED_KEY, "1");
+    } catch {
+      // localStorage may be unavailable in private browsing; hiding still works for this session.
+    }
+  }
+
+  function showTipAgain() {
+    try {
+      window.localStorage.removeItem(TIP_DISMISSED_KEY);
+    } catch {
+      // The menu action should still show the tip even if storage is unavailable.
+    }
+
+    setShowTip(true);
+  }
+
+  function applyAppUpdate() {
+    if (updateRegistration?.waiting) {
+      setNotice("正在更新到最新版本...");
+      updateRegistration.waiting.postMessage({ type: "SKIP_WAITING" });
+      return;
+    }
+
+    window.location.reload();
+  }
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -839,8 +894,8 @@ function App() {
     setIsLoadingCloud(true);
 
     try {
-      await loadCloudTasks(cloudSpaceId);
-      setNotice("已刷新同步。");
+      const taskCount = await loadCloudTasks(cloudSpaceId);
+      setNotice(`已刷新同步，共 ${taskCount} 件任务。`);
     } catch (error) {
       setNotice(getErrorMessage(error));
     } finally {
@@ -911,6 +966,41 @@ function App() {
       : timeMode === "history"
         ? `${ownerLabel}历史里还没有待办`
         : `${ownerLabel}清单还空着，点左下角 + 添加第一件事`;
+  const directFilterActions = [
+    ...tabs
+      .filter((tab) => tab.id !== viewMode && tab.count > 0)
+      .map((tab) => ({
+        key: `view-${tab.id}`,
+        label: `看${tab.label}`,
+        onClick: () => setViewMode(tab.id)
+      })),
+    ...timeTabs
+      .filter((tab) => tab.id !== timeMode && tab.count > 0)
+      .map((tab) => ({
+        key: `time-${tab.id}`,
+        label: `看${tab.label}`,
+        onClick: () => setTimeMode(tab.id)
+      }))
+  ].slice(0, 3);
+  const emptyActions =
+    directFilterActions.length === 0 && tasks.length > 0 && (viewMode !== "all" || timeMode !== "all")
+      ? [
+          {
+            key: "all",
+            label: "看全部任务",
+            onClick: () => {
+              setViewMode("all");
+              setTimeMode("all");
+            }
+          }
+        ]
+      : directFilterActions;
+  const emptyHint =
+    tasks.length === 0
+      ? "共享空间现在还没有任务。"
+      : visibleTasks.length === 0
+        ? "不是没同步，是当前筛选下没有任务。可以直接切到有内容的范围。"
+        : null;
 
   return (
     <main className="app-shell">
@@ -973,6 +1063,15 @@ function App() {
       {isLoadingCloud && <p className="access-line">正在同步云端清单...</p>}
       {syncMessage && <p className="access-line warning-line">{syncMessage}</p>}
 
+      {updateRegistration && (
+        <section className="update-banner" role="status" aria-label="新版本提示">
+          <span>发现新版本，更新后两边看到的界面会保持一致。</span>
+          <button type="button" onClick={applyAppUpdate}>
+            更新
+          </button>
+        </section>
+      )}
+
       <nav className="time-tabs" aria-label="日期范围">
         {timeTabs.map((tab) => (
           <button
@@ -990,12 +1089,12 @@ function App() {
       {showTip && (
         <section className="timeline-tip" aria-label="清单模式说明">
           <div className="tip-icon" aria-hidden="true" />
-          <button className="tip-close" type="button" onClick={() => setShowTip(false)} aria-label="关闭说明">
+          <button className="tip-close" type="button" onClick={dismissTip} aria-label="关闭说明">
             x
           </button>
           <h1>清单模式</h1>
           <p>未完成事项会优先显示；已完成事项可以折叠，减少占用手机屏幕。</p>
-          <button className="tip-action" type="button" onClick={() => setShowTip(false)}>
+          <button className="tip-action" type="button" onClick={dismissTip}>
             知道了
           </button>
         </section>
@@ -1016,7 +1115,19 @@ function App() {
         </div>
 
         {visibleTasks.length === 0 ? (
-          <div className="empty-pill">{emptyText}</div>
+          <div className="empty-card">
+            <strong>{emptyText}</strong>
+            {emptyHint && <span>{emptyHint}</span>}
+            {emptyActions.length > 0 && (
+              <div className="empty-actions">
+                {emptyActions.map((action) => (
+                  <button key={action.key} type="button" onClick={action.onClick}>
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         ) : (
           <>
             {visibleActiveTasks.length > 0 ? (
@@ -1148,7 +1259,7 @@ function App() {
             type="button"
             role="menuitem"
             onClick={() => {
-              setShowTip(true);
+              showTipAgain();
               setShowMoreMenu(false);
             }}
           >
