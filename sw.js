@@ -1,4 +1,4 @@
-const CACHE_NAME = "two-person-todo-v2";
+const CACHE_NAME = "two-person-todo-v3";
 const SCOPE_PATH = new URL(self.registration.scope).pathname;
 const APP_ORIGIN = new URL(self.registration.scope).origin;
 const APP_SHELL = [
@@ -15,7 +15,6 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
   );
-  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
@@ -25,6 +24,12 @@ self.addEventListener("activate", (event) => {
     )
   );
   self.clients.claim();
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("fetch", (event) => {
