@@ -320,12 +320,6 @@ button:disabled {
   margin-top: 24px;
 }
 
-.auth-code-form {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
 .auth-form label {
   margin-left: 6px;
   font-size: 0.8rem;
@@ -347,11 +341,6 @@ button:disabled {
   color: var(--muted);
 }
 
-.auth-form input:disabled {
-  color: var(--muted-strong);
-  opacity: 1;
-}
-
 .auth-form button,
 .auth-loading {
   min-height: 54px;
@@ -359,11 +348,6 @@ button:disabled {
   background: #ffffff;
   color: #111827;
   font-weight: 950;
-}
-
-.auth-form .auth-secondary-button {
-  background: rgba(255, 255, 255, 0.09);
-  color: var(--text);
 }
 
 .auth-loading {

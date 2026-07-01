@@ -226,8 +226,7 @@ function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(!isCloudMode);
   const [loginEmail, setLoginEmail] = useState("");
-  const [loginCode, setLoginCode] = useState("");
-  const [pendingLoginEmail, setPendingLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [cloudSpaceId, setCloudSpaceId] = useState<string | null>(sharedSpaceIdFromEnv);
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
@@ -637,9 +636,10 @@ function App() {
     window.location.reload();
   }
 
-  async function sendLoginCode(event: FormEvent<HTMLFormElement>) {
+  async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const email = loginEmail.trim().toLowerCase();
+    const password = loginPassword;
 
     if (!email) {
       setAuthMessage("请输入邮箱。");
@@ -656,52 +656,16 @@ function App() {
       return;
     }
 
-    setAuthMessage("正在发送验证码...");
+    if (!password) {
+      setAuthMessage("请输入密码。");
+      return;
+    }
 
-    const { error } = await supabase.auth.signInWithOtp({
+    setAuthMessage("正在登录...");
+
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
-      options: {
-        emailRedirectTo: window.location.href.split("#")[0].split("?")[0]
-      }
-    });
-
-    if (error) {
-      setAuthMessage(getErrorMessage(error));
-      return;
-    }
-
-    setPendingLoginEmail(email);
-    setLoginCode("");
-    setAuthMessage("验证码已发送。请回到这个桌面 App 输入邮件里的 6 位数字。");
-  }
-
-  async function verifyLoginCode(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!supabase) {
-      setAuthMessage("Supabase 还没有配置。");
-      return;
-    }
-
-    const email = pendingLoginEmail || loginEmail.trim().toLowerCase();
-    const token = loginCode.replace(/\s/g, "");
-
-    if (!email) {
-      setAuthMessage("请先输入邮箱并发送验证码。");
-      return;
-    }
-
-    if (!token) {
-      setAuthMessage("请输入邮箱里的 6 位验证码。");
-      return;
-    }
-
-    setAuthMessage("正在验证...");
-
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token,
-      type: "email"
+      password
     });
 
     if (error) {
@@ -715,9 +679,13 @@ function App() {
       return;
     }
 
+    if (!data.session) {
+      setAuthMessage("登录没有成功，请检查邮箱和密码。");
+      return;
+    }
+
     setSession(data.session);
-    setLoginCode("");
-    setPendingLoginEmail("");
+    setLoginPassword("");
     setAuthMessage("登录成功，之后直接点桌面图标即可。");
   }
 
@@ -730,8 +698,7 @@ function App() {
     setSession(null);
     setTasks([]);
     setCloudSpaceId(sharedSpaceIdFromEnv);
-    setLoginCode("");
-    setPendingLoginEmail("");
+    setLoginPassword("");
   }
 
   async function addTask(event: FormEvent<HTMLFormElement>) {
@@ -992,16 +959,10 @@ function App() {
         mode="loading"
         authMessage="正在读取登录状态..."
         loginEmail={loginEmail}
-        loginCode={loginCode}
-        pendingLoginEmail={pendingLoginEmail}
+        loginPassword={loginPassword}
         onEmailChange={setLoginEmail}
-        onCodeChange={setLoginCode}
-        onSendCode={sendLoginCode}
-        onVerifyCode={verifyLoginCode}
-        onChangeEmail={() => {
-          setPendingLoginEmail("");
-          setLoginCode("");
-        }}
+        onPasswordChange={setLoginPassword}
+        onSignIn={signIn}
       />
     );
   }
@@ -1012,17 +973,10 @@ function App() {
         mode="login"
         authMessage={authMessage}
         loginEmail={loginEmail}
-        loginCode={loginCode}
-        pendingLoginEmail={pendingLoginEmail}
+        loginPassword={loginPassword}
         onEmailChange={setLoginEmail}
-        onCodeChange={setLoginCode}
-        onSendCode={sendLoginCode}
-        onVerifyCode={verifyLoginCode}
-        onChangeEmail={() => {
-          setPendingLoginEmail("");
-          setLoginCode("");
-          setAuthMessage(null);
-        }}
+        onPasswordChange={setLoginPassword}
+        onSignIn={signIn}
       />
     );
   }
@@ -1377,72 +1331,50 @@ type AuthScreenProps = {
   mode: "loading" | "login";
   authMessage: string | null;
   loginEmail: string;
-  loginCode: string;
-  pendingLoginEmail: string;
+  loginPassword: string;
   onEmailChange: (value: string) => void;
-  onCodeChange: (value: string) => void;
-  onSendCode: (event: FormEvent<HTMLFormElement>) => void;
-  onVerifyCode: (event: FormEvent<HTMLFormElement>) => void;
-  onChangeEmail: () => void;
+  onPasswordChange: (value: string) => void;
+  onSignIn: (event: FormEvent<HTMLFormElement>) => void;
 };
 
 function AuthScreen({
   mode,
   authMessage,
   loginEmail,
-  loginCode,
-  pendingLoginEmail,
+  loginPassword,
   onEmailChange,
-  onCodeChange,
-  onSendCode,
-  onVerifyCode,
-  onChangeEmail
+  onPasswordChange,
+  onSignIn
 }: AuthScreenProps) {
-  const isWaitingForCode = Boolean(pendingLoginEmail);
-
   return (
     <main className="app-shell auth-shell">
       <section className="auth-card">
         <p className="auth-kicker">双人共享清单</p>
         <h1>我们的待办</h1>
-        <p>输入预设邮箱，系统会发送验证码。回到这个桌面 App 输入验证码后，登录状态会留在这里。</p>
+        <p>用预设邮箱和密码登录。登录状态会保存在这个桌面 App 里，不退出就不用反复验证。</p>
 
         {mode === "login" ? (
-          <>
-            <form className="auth-form" onSubmit={onSendCode}>
-              <label htmlFor="login-email">邮箱</label>
-              <input
-                id="login-email"
-                type="email"
-                value={loginEmail}
-                onChange={(event) => onEmailChange(event.target.value)}
-                placeholder="you@example.com"
-                autoComplete="email"
-                disabled={isWaitingForCode}
-              />
-              <button type="submit">{isWaitingForCode ? "重新发送验证码" : "发送验证码"}</button>
-            </form>
-
-            {isWaitingForCode && (
-              <form className="auth-form auth-code-form" onSubmit={onVerifyCode}>
-                <label htmlFor="login-code">验证码已发送到 {pendingLoginEmail}</label>
-                <input
-                  id="login-code"
-                  type="text"
-                  value={loginCode}
-                  onChange={(event) => onCodeChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                  placeholder="输入 6 位验证码"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={6}
-                />
-                <button type="submit">验证并进入</button>
-                <button className="auth-secondary-button" type="button" onClick={onChangeEmail}>
-                  换一个邮箱
-                </button>
-              </form>
-            )}
-          </>
+          <form className="auth-form" onSubmit={onSignIn}>
+            <label htmlFor="login-email">邮箱</label>
+            <input
+              id="login-email"
+              type="email"
+              value={loginEmail}
+              onChange={(event) => onEmailChange(event.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+            />
+            <label htmlFor="login-password">密码</label>
+            <input
+              id="login-password"
+              type="password"
+              value={loginPassword}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              placeholder="输入密码"
+              autoComplete="current-password"
+            />
+            <button type="submit">登录</button>
+          </form>
         ) : (
           <div className="auth-loading">读取中...</div>
         )}
