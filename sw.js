@@ -1,4 +1,4 @@
-const CACHE_NAME = "two-person-todo-v3";
+const CACHE_NAME = "two-person-todo-v4";
 const SCOPE_PATH = new URL(self.registration.scope).pathname;
 const APP_ORIGIN = new URL(self.registration.scope).origin;
 const APP_SHELL = [
