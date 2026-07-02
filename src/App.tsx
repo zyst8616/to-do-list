@@ -97,6 +97,16 @@ function getErrorMessage(error: unknown) {
   return "操作失败，请稍后再试。";
 }
 
+function isMissingRpcError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+
+  return message.includes("could not find the function") || message.includes("schema cache");
+}
+
+function isRowLevelSecurityError(error: unknown) {
+  return getErrorMessage(error).toLowerCase().includes("row-level security");
+}
+
 function isAllowedEmail(email?: string | null) {
   if (allowedEmails.length === 0) {
     return true;
@@ -887,6 +897,19 @@ function App() {
         return;
       }
 
+      const { error: rpcError } = await supabase.rpc("delete_task", { target_task_id: taskId });
+
+      if (!rpcError) {
+        setTasks((current) => current.filter((item) => item.id !== taskId));
+        setNotice("已删除。");
+        return;
+      }
+
+      if (!isMissingRpcError(rpcError)) {
+        setNotice(getErrorMessage(rpcError));
+        return;
+      }
+
       const { count, error } = await supabase
         .from("tasks")
         .delete({ count: "exact" })
@@ -894,6 +917,11 @@ function App() {
         .eq("space_id", cloudSpaceId);
 
       if (error) {
+        if (isRowLevelSecurityError(error)) {
+          setNotice("删除被数据库权限拦住了，请先运行删除权限修复 SQL。");
+          return;
+        }
+
         setNotice(getErrorMessage(error));
         return;
       }

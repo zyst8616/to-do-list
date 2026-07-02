@@ -16,6 +16,8 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker
       .register(serviceWorkerUrl.toString())
       .then((registration) => {
+        void registration.update();
+
         const notifyUpdateReady = () => {
           window.dispatchEvent(new CustomEvent("app-update-ready", { detail: { registration } }));
         };
