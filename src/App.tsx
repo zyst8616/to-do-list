@@ -882,23 +882,30 @@ function App() {
     }
 
     if (isCloudMode) {
-      if (!supabase) {
-        setNotice("Supabase 还没有配置。");
+      if (!supabase || !cloudSpaceId) {
+        setNotice("云端共享空间还没准备好。");
         return;
       }
 
-      const { error } = await supabase
+      const { count, error } = await supabase
         .from("tasks")
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("id", taskId);
+        .delete({ count: "exact" })
+        .eq("id", taskId)
+        .eq("space_id", cloudSpaceId);
 
       if (error) {
         setNotice(getErrorMessage(error));
         return;
       }
+
+      if (count === 0) {
+        setNotice("没有删除成功，请刷新同步后再试。");
+        return;
+      }
     }
 
     setTasks((current) => current.filter((item) => item.id !== taskId));
+    setNotice("已删除。");
   }
 
   async function refreshTasks() {
